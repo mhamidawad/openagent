@@ -110,6 +110,9 @@ export const judgmentMiddleware = createMiddleware({
       console.log(chalk.yellow(`  ⚡ Caution: ${reason}`));
     }
 
+    // Graceful error handling wrapper
+    try {
+
     if (toolName === "write_file" || toolName === "edit_file") {
       const content = (args["content"] ?? args["new_str"] ?? "") as string;
       const filePath = (args["file_path"] ?? args["path"] ?? "") as string;
@@ -187,6 +190,30 @@ export const judgmentMiddleware = createMiddleware({
     }
 
     return await handler(request);
+    } catch (error: any) {
+      // Gracefully handle tool execution errors
+      console.log(chalk.red(`  ✗ Tool error in ${toolName}: ${error.message}`));
+      
+      // Extract helpful error details
+      let errorMsg = `[TOOL ERROR] ${toolName} failed: ${error.message}`;
+      
+      // Special handling for schema validation errors
+      if (error.message.includes("Invalid enum value") || error.message.includes("expected schema")) {
+        const match = error.message.match(/Expected '([^']+)'/);
+        if (match) {
+          errorMsg += `\n\nValid values: ${match[1]}`;
+        }
+        errorMsg += `\n\nPlease retry with correct parameter values.`;
+      }
+      
+      // Return error as ToolMessage so agent can recover
+      return new ToolMessage({
+        name: toolName,
+        content: errorMsg,
+        tool_call_id: (request.toolCall as any).id || "unknown",
+        status: "error"
+      });
+    }
   },
 });
 export const leadJudgmentMiddleware = createMiddleware({

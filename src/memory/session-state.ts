@@ -208,9 +208,12 @@ export function createSessionStateTools(projectPath: string) {
       name: "update_session_state",
       description:
         "Update the session state after each significant action (delegation, completion, error). " +
-        "This enables automatic resume if the context overflows. Call after EVERY delegation round.",
+        "This enables automatic resume if the context overflows. Call after EVERY delegation round.\n\n" +
+        "IMPORTANT: currentPhase must be one of: 'planning', 'delegating', 'building', 'verifying', 'fixing', or 'complete'. " +
+        "Use 'building' for scaffolding/implementation phases.",
       schema: z.object({
-        currentPhase: z.enum(["planning", "delegating", "building", "verifying", "fixing", "complete"]),
+        currentPhase: z.enum(["planning", "delegating", "building", "verifying", "fixing", "complete"])
+          .describe("Current phase: planning | delegating | building | verifying | fixing | complete"),
         completedTasks: z.array(z.string()).optional().describe("Tasks just completed"),
         inProgressTasks: z.array(z.string()).optional().describe("Tasks now in progress"),
         remainingTasks: z.array(z.string()).optional().describe("Tasks still remaining"),
