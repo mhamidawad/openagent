@@ -2,6 +2,7 @@ import { createMiddleware } from "langchain";
 import { ToolMessage } from "@langchain/core/messages";
 import chalk from "chalk";
 import { RiskLevel } from "../types/index.js";
+import { normalizeToolResultContent } from "./context-guard.js";
 
 const HIGH_RISK_PATTERNS = [
   "rm -rf", "rm -r", "drop table", "truncate table",
@@ -194,7 +195,7 @@ Delegate this command to the responsible lead agent instead.`;
     if (isLooping) {
       const msg = `[JUDGMENT WARNING] You have called "${toolName}" with the same arguments ${MAX_REPEATS}+ times in a row. You are stuck in a loop.\n\nSTOP repeating. Do one of:\n1. Try a completely different approach\n2. If truly blocked, call update_project_log with status "blocked" and explain what you tried\n3. Return to PM with a clear description of what is preventing progress`;
       console.log(chalk.magenta(`  🔁 LOOP DETECTED: ${toolName} called ${MAX_REPEATS}+ times identically`));
-      const result = await handler(request) as any;
+      const result = normalizeToolResultContent(await handler(request)) as any;
       if (result && typeof result === "object") {
         if ("content" in result) {
           result.content = (result.content ?? "") + "\n\n" + msg;
@@ -202,10 +203,10 @@ Delegate this command to the responsible lead agent instead.`;
           result.output = (result.output ?? "") + "\n\n" + msg;
         }
       }
-      return result;
+      return normalizeToolResultContent(result);
     }
 
-    return await handler(request);
+    return normalizeToolResultContent(await handler(request));
     } catch (error: any) {
       // Gracefully handle tool execution errors
       console.log(chalk.red(`  ✗ Tool error in ${toolName}: ${error.message}`));
@@ -278,6 +279,6 @@ You CAN write files under ${LEAD_FILE_THRESHOLD} lines directly.`;
       }
     }
 
-    return await handler(request);
+    return normalizeToolResultContent(await handler(request));
   },
 });

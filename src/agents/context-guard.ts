@@ -22,6 +22,110 @@ const fileReadCache = new Map<string, { summary: string; timestamp: number }>();
 
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes — files rarely change during a build session
 
+function stringifyToolContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (content == null) return "";
+
+  if (content instanceof Uint8Array) {
+    return `[binary content: ${content.byteLength} bytes]`;
+  }
+
+  if (ArrayBuffer.isView(content)) {
+    return `[binary content: ${content.byteLength} bytes]`;
+  }
+
+  if (content instanceof ArrayBuffer) {
+    return `[binary content: ${content.byteLength} bytes]`;
+  }
+
+  if (Array.isArray(content)) {
+    return content.map((block) => {
+      if (typeof block === "string") return block;
+      if (block && typeof block === "object") {
+        const maybeText = (block as any).text;
+        if (typeof maybeText === "string") return maybeText;
+
+        const maybeContent = (block as any).content;
+        if (typeof maybeContent === "string") return maybeContent;
+      }
+      return safeStringify(block);
+    }).join("\n");
+  }
+
+  if (content && typeof content === "object") {
+    const maybeContent = (content as any).content;
+    if (typeof maybeContent === "string") return maybeContent;
+    return safeStringify(content);
+  }
+
+  return String(content);
+}
+
+function safeStringify(value: unknown): string {
+  const seen = new WeakSet<object>();
+  return JSON.stringify(value, (_key, current) => {
+    if (current instanceof Uint8Array) {
+      return `[binary content: ${current.byteLength} bytes]`;
+    }
+    if (ArrayBuffer.isView(current)) {
+      return `[binary content: ${current.byteLength} bytes]`;
+    }
+    if (current instanceof ArrayBuffer) {
+      return `[binary content: ${current.byteLength} bytes]`;
+    }
+    if (current && typeof current === "object") {
+      if (seen.has(current)) return "[Circular]";
+      seen.add(current);
+    }
+    return current;
+  }, 2) ?? "";
+}
+
+function normalizeMessageContent(message: unknown): unknown {
+  const looksLikeToolMessage = ToolMessage.isInstance(message)
+    || Boolean(
+      message
+      && typeof message === "object"
+      && (message as any).type === "tool"
+      && "tool_call_id" in (message as any)
+    );
+
+  if (looksLikeToolMessage) {
+    const toolMessage = message as any;
+    if (typeof toolMessage.content !== "string") {
+      toolMessage.content = stringifyToolContent(toolMessage.content);
+    }
+    return toolMessage;
+  }
+  return message;
+}
+
+export function normalizeToolResultContent(result: unknown): unknown {
+  if (!result || typeof result !== "object") return result;
+
+  if (
+    ToolMessage.isInstance(result)
+    || Boolean((result as any).type === "tool" && "tool_call_id" in (result as any))
+  ) {
+    return normalizeMessageContent(result);
+  }
+
+  const value = result as any;
+  if (Array.isArray(value.messages)) {
+    value.messages = value.messages.map(normalizeMessageContent);
+  }
+
+  if (value.update && Array.isArray(value.update.messages)) {
+    value.update.messages = value.update.messages.map(normalizeMessageContent);
+  }
+
+  if ("content" in value && typeof value.content !== "string") {
+    value.content = stringifyToolContent(value.content);
+  }
+
+  return value;
+}
+
 function isBlockedPath(filePath: string): { blocked: boolean; reason: string } {
   const normalized = filePath.replace(/\\/g, "/");
 
@@ -146,14 +250,14 @@ export const contextGuardMiddleware = createMiddleware({
     }
 
     // Execute the actual tool call
-    const result = await handler(request) as any;
+    const result = normalizeToolResultContent(await handler(request)) as any;
 
     // Cache read_file results for deduplication
     if (toolName === "read_file" && result) {
       const filePath = (args["file_path"] ?? args["path"] ?? "") as string;
       const content = typeof result === "string"
         ? result
-        : (result?.content ?? "");
+        : (result?.content ?? result?.update?.messages?.at?.(-1)?.content ?? result?.messages?.at?.(-1)?.content ?? "");
       if (typeof content === "string" && content.length > 0) {
         cacheFile(filePath, content);
       }
