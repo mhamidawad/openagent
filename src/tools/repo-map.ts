@@ -2,6 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
+import { intelligentCache, makeCacheKey, projectCacheTag } from "../cache/intelligent-cache.js";
 
 const IGNORED_DIRS = new Set([
   "node_modules", "dist", "build", "coverage", ".git",
@@ -188,29 +189,46 @@ function formatRepoMap(fileMaps: FileMap[], projectName: string): string {
 }
 
 export function createRepoMapTool(projectPath: string) {
+  intelligentCache.watchProject(projectPath);
+
   return tool(
     async ({ maxFiles, maxDepth, directory }: { maxFiles?: number; maxDepth?: number; directory?: string }) => {
       const effectiveMaxFiles = maxFiles ?? 1000;
       const effectiveMaxDepth = maxDepth ?? 10;
       const scanRoot = directory ? path.join(projectPath, directory) : projectPath;
+      const cacheKey = makeCacheKey([
+        "repo-map",
+        path.resolve(scanRoot).toLowerCase(),
+        effectiveMaxFiles,
+        effectiveMaxDepth,
+      ]);
 
-      const codeFiles = await walkForCodeFiles(scanRoot, effectiveMaxFiles, effectiveMaxDepth);
+      return intelligentCache.getOrSet(
+        cacheKey,
+        async () => {
+          const codeFiles = await walkForCodeFiles(scanRoot, effectiveMaxFiles, effectiveMaxDepth);
 
-      const scanResults = await Promise.all(
-        codeFiles.map(f => scanFile(f, projectPath)),
+          const scanResults = await Promise.all(
+            codeFiles.map(f => scanFile(f, projectPath)),
+          );
+
+          const fileMaps = scanResults.filter((r): r is FileMap => r !== null);
+
+          const projectName = directory ?? path.basename(projectPath);
+          const totalCodeFiles = codeFiles.length;
+          const map = formatRepoMap(fileMaps, projectName);
+          const scaleNote = totalCodeFiles >= 500
+            ? `\n\nLarge repo (${totalCodeFiles} files scanned). Use code_search and find_symbol to locate specific code.`
+            : totalCodeFiles >= 100
+              ? `\n\nMedium repo (${totalCodeFiles} files). Use code_search for targeted lookups.`
+              : "";
+          return map + scaleNote;
+        },
+        {
+          ttlMs: 10 * 60 * 1000,
+          tags: [projectCacheTag(projectPath)],
+        },
       );
-
-      const fileMaps = scanResults.filter((r): r is FileMap => r !== null);
-
-      const projectName = directory ?? path.basename(projectPath);
-      const totalCodeFiles = codeFiles.length;
-      const map = formatRepoMap(fileMaps, projectName);
-      const scaleNote = totalCodeFiles >= 500
-        ? `\n\n⚠️ LARGE REPO (${totalCodeFiles} files scanned). Use code_search and find_symbol to locate specific code — do NOT read files one by one.`
-        : totalCodeFiles >= 100
-          ? `\n\n📌 Medium repo (${totalCodeFiles} files). Use code_search for targeted lookups.`
-          : "";
-      return map + scaleNote;
     },
     {
       name: "collect_repo_map",

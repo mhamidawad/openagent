@@ -2,6 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
+import { intelligentCache, makeCacheKey, projectCacheTag } from "../cache/intelligent-cache.js";
 
 const IGNORED_DIRS = new Set([
   "node_modules", "dist", "build", "coverage", ".git",
@@ -52,64 +53,77 @@ function detectStack(deps: Record<string, string>): string[] {
 }
 
 export function createCollectProjectContextTool(projectPath: string) {
+  intelligentCache.watchProject(projectPath);
+
   return tool(
     async () => {
-      let pkg: any = null;
-      try {
-        pkg = JSON.parse(await fs.readFile(path.join(projectPath, "package.json"), "utf-8"));
-      } catch { /* none */ }
+      const cacheKey = makeCacheKey(["project-context", path.resolve(projectPath).toLowerCase()]);
 
-      let readme = "";
-      for (const name of ["README.md", "README.MD", "readme.md"]) {
-        try {
-          readme = (await fs.readFile(path.join(projectPath, name), "utf-8")).slice(0, 500);
-          break;
-        } catch { /* try next */ }
-      }
+      return intelligentCache.getOrSet(
+        cacheKey,
+        async () => {
+          let pkg: any = null;
+          try {
+            pkg = JSON.parse(await fs.readFile(path.join(projectPath, "package.json"), "utf-8"));
+          } catch { /* none */ }
 
-      let sajicodeMd = "";
-      try {
-        sajicodeMd = await fs.readFile(path.join(projectPath, "SAJICODE.md"), "utf-8");
-      } catch { /* none */ }
+          let readme = "";
+          for (const name of ["README.md", "README.MD", "readme.md"]) {
+            try {
+              readme = (await fs.readFile(path.join(projectPath, name), "utf-8")).slice(0, 500);
+              break;
+            } catch { /* try next */ }
+          }
 
-      let whatsDone = "";
-      try {
-        whatsDone = await fs.readFile(path.join(projectPath, ".sajicode", "whats_done.md"), "utf-8");
-      } catch { /* none */ }
+          let sajicodeMd = "";
+          try {
+            sajicodeMd = await fs.readFile(path.join(projectPath, "SAJICODE.md"), "utf-8");
+          } catch { /* none */ }
 
-      const memories: Record<string, string> = {};
-      try {
-        const memDir = path.join(projectPath, ".sajicode", "memories");
-        const files = await fs.readdir(memDir);
-        for (const f of files.filter((f) => f.endsWith(".md"))) {
-          memories[f] = await fs.readFile(path.join(memDir, f), "utf-8");
-        }
-      } catch { /* none */ }
+          let whatsDone = "";
+          try {
+            whatsDone = await fs.readFile(path.join(projectPath, ".sajicode", "whats_done.md"), "utf-8");
+          } catch { /* none */ }
 
-      const tree = await getTree(projectPath);
-      const allDeps = pkg ? { ...pkg.dependencies, ...pkg.devDependencies } : {};
-      const stack = detectStack(allDeps);
+          const memories: Record<string, string> = {};
+          try {
+            const memDir = path.join(projectPath, ".sajicode", "memories");
+            const files = await fs.readdir(memDir);
+            for (const f of files.filter((f) => f.endsWith(".md"))) {
+              memories[f] = await fs.readFile(path.join(memDir, f), "utf-8");
+            }
+          } catch { /* none */ }
 
-      if (tree.some((f) => f.endsWith(".ts") || f.endsWith(".tsx")) && !stack.includes("TypeScript")) stack.push("TypeScript");
-      if (tree.some((f) => f.endsWith(".py"))) stack.push("Python");
-      if (tree.some((f) => f.endsWith(".go"))) stack.push("Go");
+          const tree = await getTree(projectPath);
+          const allDeps = pkg ? { ...pkg.dependencies, ...pkg.devDependencies } : {};
+          const stack = detectStack(allDeps);
 
-      return JSON.stringify({
-        projectPath,
-        techStack: stack,
-        package: pkg ? {
-          name: pkg.name, version: pkg.version,
-          scripts: pkg.scripts,
-          dependencies: Object.keys(pkg.dependencies ?? {}),
-          devDependencies: Object.keys(pkg.devDependencies ?? {}),
-        } : null,
-        structure: tree.slice(0, 80).join("\n"),
-        totalFiles: tree.length,
-        readme: readme || null,
-        sajicodeMd: sajicodeMd || null,
-        whatsDone: whatsDone || null,
-        memories,
-      }, null, 2);
+          if (tree.some((f) => f.endsWith(".ts") || f.endsWith(".tsx")) && !stack.includes("TypeScript")) stack.push("TypeScript");
+          if (tree.some((f) => f.endsWith(".py"))) stack.push("Python");
+          if (tree.some((f) => f.endsWith(".go"))) stack.push("Go");
+
+          return JSON.stringify({
+            projectPath,
+            techStack: stack,
+            package: pkg ? {
+              name: pkg.name, version: pkg.version,
+              scripts: pkg.scripts,
+              dependencies: Object.keys(pkg.dependencies ?? {}),
+              devDependencies: Object.keys(pkg.devDependencies ?? {}),
+            } : null,
+            structure: tree.slice(0, 80).join("\n"),
+            totalFiles: tree.length,
+            readme: readme || null,
+            sajicodeMd: sajicodeMd || null,
+            whatsDone: whatsDone || null,
+            memories,
+          }, null, 2);
+        },
+        {
+          ttlMs: 5 * 60 * 1000,
+          tags: [projectCacheTag(projectPath)],
+        },
+      );
     },
     {
       name: "collect_project_context",

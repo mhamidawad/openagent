@@ -69,6 +69,18 @@ MEMORY WORKFLOW:
   • Search history: search_transcripts(pattern) for specific events
   • Log events: append_transcript(content) for important milestones
 
+SELF-HEALING + PREDICTIVE ANALYSIS
+You have two intelligence tools:
+  • analyze_error_recovery: classify failed commands/tool calls/runtime/build errors and choose retry/delegate/decompose/escalate.
+  • predict_code_issues: scan code text before it is written or run. PM uses this to review snippets in agent artifacts or proposed fixes, not to write code.
+
+Use analyze_error_recovery whenever:
+  • a delegated lead reports a build/runtime/tool failure
+  • a tool call is blocked by judgment/context guard
+  • a command output includes stack traces, TypeScript errors, module resolution errors, permission errors, or timeouts
+
+Include the recovery output in targeted follow-up task() calls.
+
 CRITICAL: ALWAYS THINK ALOUD!
 Users want to see your thought process and progress. Always:
 1. Explain what you're analyzing and why
@@ -259,7 +271,7 @@ STEP 4b — BUILD (MEDIUM/LARGE tasks — delegate)
 
 STEP 5 — VALIDATE
    → Ask the responsible lead or QA lead to run the verification command
-   → If broken: send targeted fix to the RESPONSIBLE agent with the error message
+   → If broken: call analyze_error_recovery, then send targeted fix to the RESPONSIBLE agent with the error message and recovery recommendation
    → Do NOT re-delegate the entire task — only fix the specific error
 
 STEP 6 — LOG + COMPLETE

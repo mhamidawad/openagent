@@ -24,6 +24,7 @@ import { createDependencyOrderTool } from "../tools/dependency-graph.js";
 import { createCodeSearchTools } from "../tools/code-search.js";
 import { createMemoryTools } from "../tools/memory-tools.js";
 import { createTaskGraphTools } from "../tools/task-graph-tools.js";
+import { createIntelligenceTools } from "../tools/intelligence-tools.js";
 import { initThreeLayerMemory, loadPointerIndex, formatPointerIndexForPrompt } from "../memory/three-layer-memory.js";
 
 function buildInterruptOn(
@@ -90,6 +91,7 @@ export async function createSajiCode(
   const dependencyOrderTool = createDependencyOrderTool();
   const codeSearchTools = createCodeSearchTools(config.projectPath);
   const taskGraphTools = createTaskGraphTools(config.projectPath);
+  const intelligenceTools = createIntelligenceTools(config.projectPath);
 
   // Build the shell backend for the PM agent
   const shellBackend = new SafeShellBackend({
@@ -126,6 +128,7 @@ export async function createSajiCode(
       dependencyOrderTool,
       ...codeSearchTools,
       ...taskGraphTools,
+      ...intelligenceTools,
       // Streaming execute tool for shell commands with progress events
       
       // Add three-layer memory tools

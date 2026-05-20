@@ -27,6 +27,7 @@ import { createFileTrackerTools } from "../tools/file-tracker.js";
 import { createDependencyOrderTool } from "../tools/dependency-graph.js";
 import { createCodeSearchTools } from "../tools/code-search.js";
 import { createMemoryTools } from "../tools/memory-tools.js";
+import { createIntelligenceTools } from "../tools/intelligence-tools.js";
 import { MCPClientManager } from "../mcp/MCPClient.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -112,6 +113,8 @@ YOUR WORKFLOW:
     Example: execute("mkdir -p src/components src/utils src/types")
 
   STEP 4 — BUILD DIRECTLY (choose strategy)
+    Before writing risky code (auth, file IO, server startup, generated JS/TS, shell-facing code),
+    call predict_code_issues with the draft content and fix high/medium issues first.
     
     SINGLE FILE (1 file):
       → Write it immediately with write_file
@@ -128,6 +131,8 @@ YOUR WORKFLOW:
 
   STEP 5 — VERIFY + PUBLISH
     After completion, verify files were created.
+    If any command, compile, runtime, or tool call fails, call analyze_error_recovery with the exact error,
+    apply the recommended recovery, then record the lesson with record_experience.
     Call write_artifact with: files created, files modified, exports, errors, summary.
     Call update_session_state to save progress.
     Call record_experience for any errors encountered.
@@ -185,6 +190,7 @@ export async function createAgentFromSpec(
     createDependencyOrderTool(),
     ...createCodeSearchTools(projectPath),
     ...createMemoryTools(projectPath),
+    ...createIntelligenceTools(projectPath),
     // DeepAgents provides write_file, edit_file, read_file automatically via backend
     // Only need streaming execute tool for shell commands with progress events
     
